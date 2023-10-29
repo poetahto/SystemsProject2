@@ -15,6 +15,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${RUNTIME_DIR})
 
 set(SOURCE_NAMES
     src/main.cpp
+        include/types.hpp
 )
 
 add_executable(disassem ${SOURCE_NAMES})

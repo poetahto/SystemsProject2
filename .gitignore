@@ -1,2 +1,5 @@
+# ide user directories
+.idea
+
 build
 bin
