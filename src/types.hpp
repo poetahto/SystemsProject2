@@ -1,10 +1,10 @@
 // Helper type definitions
-// Date: 25-Sep-23
+// Date: 28-Oct-23
 // Author: Daniel Walls
 // RedID: 825776127
 
-#ifndef ASSIG1_TYPES_H
-#define ASSIG1_TYPES_H
+#ifndef ASSIG2_TYPES_H
+#define ASSIG2_TYPES_H
 
 #include <cstdint>
 
@@ -14,4 +14,4 @@ typedef uint32_t u32;
 
 typedef int32_t s32;
 
-#endif // ASSIG1_TYPES_H
+#endif // ASSIG2_TYPES_H

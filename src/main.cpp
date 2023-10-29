@@ -1,5 +1,6 @@
-#include <iostream>
 #include <string>
+
+#include "logger.hpp"
 #include "types.hpp"
 
 struct Symbol
@@ -41,17 +42,28 @@ struct ObjectCodeData
     AssemblyLine* assemblyLines {};
 };
 
-bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData);
+bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
+{
+    TODO("parse symbol table");
+    return true;
+}
 
-bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& symbolData, ObjectCodeData& outData);
+bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& symbolData, ObjectCodeData& outData)
+{
+    TODO("parse object code file!");
+    return true;
+}
 
-void outputObjectCodeData(const ObjectCodeData& data, const std::string& outputFileName);
+void outputObjectCodeData(const ObjectCodeData& data, const std::string& outputFileName)
+{
+    TODO("output object code data!");
+}
 
 int main(int argc, char* argv[])
 {
     if (argc != 3)
     {
-        printf("usage: ./disassem <object code file> <symbol table file>\n");
+        printf("usage: ./disassem <object code file> <symbol table file>");
         return -1;
     }
 

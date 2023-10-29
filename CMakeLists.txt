@@ -14,12 +14,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${RUNTIME_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${RUNTIME_DIR})
 
 set(SOURCE_NAMES
-    src/main.cpp
-        include/types.hpp
+		src/main.cpp
+        src/types.hpp
+		src/instruction_file_printer.cpp
+		src/instruction_file_printer.hpp
+		src/instruction_info.hpp
+		src/sic_xc_file_reader.cpp
+		src/sic_xc_file_reader.hpp
+		src/logger.cpp
+		src/logger.hpp
 )
 
 add_executable(disassem ${SOURCE_NAMES})
-target_include_directories(disassem PRIVATE include)
 
 # Copies assets over to the build directory.
 set(ASSET_NAMES
