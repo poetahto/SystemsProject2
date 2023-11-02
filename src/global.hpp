@@ -24,7 +24,7 @@ inline bool tryGetArg(const std::string& line, size_t index, std::string* outRes
         argStart = line.find(delimiter, argStart);
 
         // Often, we have multiple spaces between args, so skip them all.
-        argStart = line.find_first_not_of(' ', argStart) + 1;
+        argStart = line.find_first_not_of(' ', argStart + 1);
     }
 
     // Make sure we actually found our target: otherwise we failed.
@@ -32,7 +32,7 @@ inline bool tryGetArg(const std::string& line, size_t index, std::string* outRes
         return false;
 
     // Now we skip over to the end of the word, *assuming no spaces within*.
-    size_t argEnd {line.find(delimiter, argStart)};
+    size_t argEnd {line.find(delimiter, argStart + 1)};
 
     // If we were given a valid buffer, write the result into it.
     if (outResult != nullptr)

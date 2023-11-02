@@ -10,16 +10,19 @@
 struct Symbol
 {
     std::string name;
-    std::string address;
+    std::string addressHex;
     std::string flags;
+    int addressValue;
 };
 
 struct Literal
 {
     std::string name;
     std::string value;
-    std::string length;
-    std::string address;
+    std::string lengthHex;
+    std::string addressHex;
+    int lengthValue;
+    int addressValue;
 };
 
 struct SymbolTableData
@@ -46,6 +49,26 @@ struct ObjectCodeData
     AssemblyLine* assemblyLines {};
 };
 
+bool tryGetInt(const std::string& hex, int& outResult)
+{
+    try
+    {
+        outResult = std::stoi(hex, nullptr, 16);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+std::string getBetween(const std::string& value, char delimiter)
+{
+    size_t start {value.find_first_of(delimiter) + 1};
+    size_t end {value.find_first_of(delimiter, start)};
+    return value.substr(start, end - start);
+}
+
 // Extracts symbol and literal information from a symbol table file.
 bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
 {
@@ -66,8 +89,9 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
 
             Symbol symbol;
             tryGetArg(line, 0, &symbol.name);
-            failure |= !tryGetArg(line, 1, &symbol.address);
+            failure |= !tryGetArg(line, 1, &symbol.addressHex);
             failure |= !tryGetArg(line, 2, &symbol.flags);
+            failure |= !tryGetInt(symbol.addressHex, symbol.addressValue);
 
             if (failure)
                 break;
@@ -94,8 +118,10 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
             Literal literal;
             tryGetArg(line, 0, &literal.name);
             failure |= !tryGetArg(line, 1, &literal.value);
-            failure |= !tryGetArg(line, 2, &literal.length);
-            failure |= !tryGetArg(line, 3, &literal.address);
+            failure |= !tryGetArg(line, 2, &literal.lengthHex);
+            failure |= !tryGetArg(line, 3, &literal.addressHex);
+            failure |= !tryGetInt(literal.addressHex, literal.addressValue);
+            failure |= !tryGetInt(literal.lengthHex, literal.lengthValue);
 
             if (failure)
                 break;
@@ -114,53 +140,169 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 {
     // debug print symbols
     {
-//        // Iterate on symbols
-//        for (int i = 0; i < symbolData.symbolCount; ++i)
-//        {
-//            Symbol cur {symbolData.symbols[i]};
-//            Logger::log_info("symbol: %s %s %s", cur.name.c_str(), cur.address.c_str(), cur.flags.c_str());
-//        }
-//
-//        // Iterate on literals
-//        for (int i = 0; i < symbolData.literalCount; ++i)
-//        {
-//            Literal cur {symbolData.literals[i]};
-//            Logger::log_info("literal: %s %s %s %s", cur.name.c_str(), cur.value.c_str(), cur.length.c_str(), cur.address.c_str());
-//        }
+        // Iterate on symbols
+        for (int i = 0; i < symbolData.symbolCount; ++i)
+        {
+            Symbol cur {symbolData.symbols[i]};
+            Logger::log_info("symbol: %s %s %s", cur.name.c_str(), cur.addressHex.c_str(), cur.flags.c_str());
+        }
+
+        // Iterate on literals
+        for (int i = 0; i < symbolData.literalCount; ++i)
+        {
+            Literal cur {symbolData.literals[i]};
+            Logger::log_info("literal: %s %s %s %s", cur.name.c_str(), cur.value.c_str(), cur.lengthHex.c_str(), cur.addressHex.c_str());
+        }
     }
 
-    // debug generate data
+    std::unordered_map<u8, InstructionDefinition> instructionTable {};
+
+    // Parse the instructions from a CSV file
     {
-//        outData.assemblyLineCount = 5;
-//        outData.assemblyLines = new AssemblyLine[]
-//                {
-//                        {"0000", "Assign", "START", "0", ""},
-//                        {"0000", "FIRST", "+LDB", "#02C6", ""},
-//                        {"0004", "", "BASE", "02C6", "691002C6"},
-//                        {"0007", "", "STL", "02C6", "1722BF"},
-//                        {"02C7", "", "CLEAR", "A", "B400"},
-//                };
+        std::ifstream opCodeTableStream {"opcode_table.csv"};
+
+        if (!opCodeTableStream.is_open())
+        {
+            Logger::log_error("[Disassembler] Failed to open op code table!");
+            return false;
+        }
+
+        std::string line {};
+
+        while (std::getline(opCodeTableStream, line))
+        {
+            InstructionDefinition definition {};
+            tryGetArg(line, 0, &definition.name, ',');
+            std::string format {};
+            tryGetArg(line, 1, &format, ',');
+
+            if (format == "1")
+                definition.format = InstructionInfo::Format::One;
+            else if (format == "2")
+                definition.format = InstructionInfo::Format::Two;
+            else if (format == "3/4")
+                definition.format = InstructionInfo::Format::ThreeOrFour;
+
+            std::string opcodeHex {};
+            tryGetArg(line, 2, &opcodeHex, ',');
+            u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
+            instructionTable.emplace(opcodeValue, definition);
+        }
     }
 
-
-    SicXcFileReader fileReader {};
-    fileReader.init({fileName.c_str(), "opcode_table.csv"});
-    InstructionInfo info {};
-    // todo: start and end instructions
+    std::string line {};
+    std::ifstream objectCodeStream {fileName};
+    size_t address {};
     auto* lines = new std::vector<AssemblyLine>;
 
-    while (fileReader.tryRead(info))
+    while (std::getline(objectCodeStream, line))
     {
-        AssemblyLine line {};
-        Logger::log_info("%s %i %i %s", info.name.c_str(), info.opCode, info.format, info.objectCode.c_str());
-        line.instruction = info.name;
-        line.objectCode = info.objectCode;
-        lines->emplace_back(line);
+        // todo: parse header
+        if (line[0] == 'H')
+        {
+            Logger::log_info("parsing header");
+        }
+        else if (line[0] == 'T')
+        {
+            Logger::log_info("parsing text record");
+            std::string startingAddressHex {line.substr(1, 6)};
+            std::string lengthHex {line.substr(7, 2)};
+            int startingAddressValue, lengthValue;
+            tryGetInt(startingAddressHex, startingAddressValue);
+            tryGetInt(lengthHex, lengthValue);
+            address = startingAddressValue;
+            Logger::log_info("start: %s (%i), lengthHex: %s (%i)", startingAddressHex.c_str(), startingAddressValue, lengthHex.c_str(), lengthValue);
+
+            int index {9};
+            int end = address + lengthValue;
+
+            while (address < end)
+            {
+                AssemblyLine result {};
+                int start {index};
+
+                // check to see if current addressHex has a label
+                for (int i {0}; i < symbolData.symbolCount; ++i)
+                {
+                    if (address == symbolData.symbols[i].addressValue)
+                        result.label = symbolData.symbols[i].name;
+                }
+
+                // check to see if current addressHex is a literal
+                bool foundLiteral {false};
+
+                for (int i {0}; i < symbolData.literalCount; ++i)
+                {
+                    Literal cur {symbolData.literals[i]};
+
+                    if (address == cur.addressValue)
+                    {
+                        result.address = cur.addressHex;
+                        result.label = cur.name;
+                        result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
+                        result.value1 = cur.value;
+                        result.objectCode = getBetween(cur.value, '\'');
+                        index += cur.lengthValue;
+                        foundLiteral = true;
+                    }
+                }
+
+                // Only parse an instruction if we didn't have a literal
+                if (!foundLiteral)
+                {
+                    // Now we can assume we found an instruction to parse.
+                    std::string opCodeHex {line.substr(index, 2)};
+                    index += 2;
+                    int opCodeValue {};
+                    tryGetInt(opCodeHex, opCodeValue);
+                    opCodeValue = opCodeValue & 0b11111100;
+
+                    // Make sure our table contains the opcode
+                    if (instructionTable.count(opCodeValue) == 0)
+                        return false;
+
+                    InstructionDefinition instructionDefinition = instructionTable[opCodeValue];
+                    result.instruction = instructionDefinition.name;
+
+                    if (instructionDefinition.format == InstructionInfo::Format::Two)
+                    {
+                        // todo: handle format 2
+                        index += 2;
+                    }
+                    else if (instructionDefinition.format == InstructionInfo::Format::ThreeOrFour)
+                    {
+                        bool n, i, x, b, p, e;
+
+                        n = (opCodeValue & 0b00000010) != 0;
+                        i = (opCodeValue & 0b00000001) != 0;
+
+                        std::string nixbpeHex {line.substr(index, 1)};
+                        index += 1;
+                        int nixbpeValue {};
+                        tryGetInt(nixbpeHex, nixbpeValue);
+
+                        x = (nixbpeValue & 0b1000) != 0;
+                        b = (nixbpeValue & 0b0100) != 0;
+                        p = (nixbpeValue & 0b0010) != 0;
+                        e = (nixbpeValue & 0b0001) != 0;
+
+                        if (e) index += 5;
+                        else index += 3;
+
+                        // todo: handle format 3/4
+                    }
+
+                    result.objectCode = line.substr(start, index - start);
+                }
+
+                address += (index - start) / 2;
+                lines->emplace_back(result);
+            }
+        }
     }
 
     outData.assemblyLineCount = lines->size();
     outData.assemblyLines = lines->data();
-    fileReader.free();
     return true;
 }
 

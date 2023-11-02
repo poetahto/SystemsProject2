@@ -19,38 +19,42 @@ bool SicXcFileReader::init(const CreateInfo &createInfo)
         return false;
     }
 
-    std::ifstream opCodeTableStream {createInfo.opCodeTableFileName};
-
-    if (!opCodeTableStream.is_open())
+    // Parse the opcodes from a CSV file
     {
-        Logger::log_error("[Disassembler] Failed to open op code table %s!", createInfo.opCodeTableFileName);
-        return false;
+        std::ifstream opCodeTableStream {createInfo.opCodeTableFileName};
+
+        if (!opCodeTableStream.is_open())
+        {
+            Logger::log_error("[Disassembler] Failed to open op code table %s!", createInfo.opCodeTableFileName);
+            return false;
+        }
+
+        std::string line {};
+
+        while (std::getline(opCodeTableStream, line))
+        {
+            InstructionDefinition definition {};
+            tryGetArg(line, 0, &definition.name, ',');
+            std::string format {};
+            tryGetArg(line, 1, &format, ',');
+
+            if (format == "1")
+                definition.format = InstructionInfo::Format::One;
+            else if (format == "2")
+                definition.format = InstructionInfo::Format::Two;
+            else if (format == "3/4")
+                definition.format = InstructionInfo::Format::ThreeOrFour;
+
+            std::string opcodeHex {};
+            tryGetArg(line, 2, &opcodeHex, ',');
+            u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
+            m_instructionTable.emplace(opcodeValue, definition);
+        }
     }
 
-    std::string line {};
-
-    while (std::getline(opCodeTableStream, line))
-    {
-        InstructionDefinition definition {};
-        tryGetArg(line, 0, &definition.name, ',');
-        std::string format {};
-        tryGetArg(line, 1, &format, ',');
-
-        if (format == "1")
-            definition.format = InstructionInfo::Format::One;
-        else if (format == "2")
-            definition.format = InstructionInfo::Format::Two;
-        else if (format == "3/4")
-            definition.format = InstructionInfo::Format::ThreeOrFour;
-
-        std::string opcodeHex {};
-        tryGetArg(line, 2, &opcodeHex, ',');
-        u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
-        m_instructionTable.emplace(opcodeValue, definition);
-    }
-
+    // todo: parse header, for now skips right to text
     skipToNextTextSegment();
-    Logger::log_info("[Disassembler] Successfully opened file %s, it has %u bytes of text.", m_inputFileName, m_remainingBytes);
+    Logger::log_info("[Disassembler] Successfully opened file %s.", m_inputFileName);
     return true;
 }
 
@@ -73,6 +77,7 @@ bool SicXcFileReader::tryRead(InstructionInfo &outInfo)
     if (!m_inputFileStream)
         return false;
 
+    // If we ran out of data in the text record, try to find and read from the next one
     if (m_remainingBytes <= 0)
     {
         m_inputFileStream.ignore(); // skip the newline
@@ -187,7 +192,7 @@ void SicXcFileReader::skipToNextTextSegment()
         return;
     }
 
-    m_inputFileStream.ignore(6); // Skip the starting address (maybe for now only)
+    m_inputFileStream.ignore(6); // Skip the starting addressHex (maybe for now only)
     char sizeBuffer[3];
     m_inputFileStream.read(sizeBuffer, 2);
     sizeBuffer[2] = '\0';
