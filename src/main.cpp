@@ -2,10 +2,16 @@
 #include <fstream>
 #include <vector>
 #include <iomanip>
+#include <sstream>
+#include <iostream>
 
 #include "sic_xc_file_reader.hpp"
 #include "logger.hpp"
 #include "global.hpp"
+
+// todo: fix the hex formatting
+// todo: fill in the value column
+// todo: header start and end
 
 struct Symbol
 {
@@ -60,6 +66,14 @@ bool tryGetInt(const std::string& hex, int& outResult)
     {
         return false;
     }
+}
+
+template<typename T>
+std::string getHex(T value)
+{
+    std::ostringstream ss {};
+    ss << std::hex << value;
+    return ss.str();
 }
 
 std::string getBetween(const std::string& value, char delimiter)
@@ -214,7 +228,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
             Logger::log_info("start: %s (%i), lengthHex: %s (%i)", startingAddressHex.c_str(), startingAddressValue, lengthHex.c_str(), lengthValue);
 
             int index {9};
-            int end = address + lengthValue;
+            size_t end = address + lengthValue;
 
             while (address < end)
             {
@@ -293,6 +307,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     }
 
                     result.objectCode = line.substr(start, index - start);
+                    result.address = getHex(address);
                 }
 
                 address += (index - start) / 2;
