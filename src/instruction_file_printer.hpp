@@ -7,7 +7,7 @@
 #define ASSIG1_INSTRUCTION_FILE_PRINTER_HPP
 
 #include <fstream>
-#include "types.hpp"
+#include "global.hpp"
 #include "instruction_info.hpp"
 
 // Given an instruction, this class will format and print a human-readable version into a file.

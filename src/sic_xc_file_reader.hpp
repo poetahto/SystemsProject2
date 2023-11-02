@@ -7,8 +7,15 @@
 #define ASSIG2_SIC_XC_FILE_READER_HPP
 
 #include <fstream>
-#include "types.hpp"
+#include <unordered_map>
+#include "global.hpp"
 #include "instruction_info.hpp"
+
+struct InstructionDefinition
+{
+    std::string name;
+    InstructionInfo::Format format;
+};
 
 // Opens a compiled SIC / XC object file, and extracts information from it.
 class SicXcFileReader
@@ -16,7 +23,8 @@ class SicXcFileReader
 public:
     struct CreateInfo
     {
-        const char *inputFileName{};
+        const char* inputFileName;
+        const char* opCodeTableFileName;
     };
 
     bool init(const CreateInfo &createInfo);
@@ -27,6 +35,7 @@ public:
     bool tryRead(InstructionInfo &outInfo);
 
 private:
+    std::unordered_map<u8, InstructionDefinition> m_instructionTable {};
     const char* m_inputFileName{};
     std::ifstream m_inputFileStream{};
     s32 m_remainingBytes{};

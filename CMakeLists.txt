@@ -15,7 +15,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${RUNTIME_DIR})
 
 set(SOURCE_NAMES
 		src/main.cpp
-        src/types.hpp
+        src/global.hpp
 		src/instruction_file_printer.cpp
 		src/instruction_file_printer.hpp
 		src/instruction_info.hpp
@@ -32,6 +32,7 @@ set(ASSET_NAMES
 		${CMAKE_SOURCE_DIR}/assets/out.lst
 		${CMAKE_SOURCE_DIR}/assets/test.obj
 		${CMAKE_SOURCE_DIR}/assets/test.sym
+		${CMAKE_SOURCE_DIR}/assets/opcode_table.csv
 )
 
 add_custom_target(copy-assets ALL
