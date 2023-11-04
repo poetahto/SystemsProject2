@@ -10,8 +10,6 @@
 #include "logger.hpp"
 #include "global.hpp"
 
-// todo: make the registers show up in value (see clear)
-// todo: make base instruction show the base
 // todo: fix the formatting
 
 struct InstructionDefinition
@@ -52,7 +50,8 @@ struct AssemblyLine
     enum class Type
     {
         Instruction,
-        Literal
+        Literal,
+        Decoration,
     } type;
 
     std::string addressHex;
@@ -154,7 +153,7 @@ void setValueRegisterConstant(AssemblyLine& line)
     std::string constantHex {line.objectCode.substr(3, 1)};
     int constantValue;
     tryGetInt(constantHex, constantValue);
-    std::string constantName {std::to_string(constantValue)};
+    std::string constantName {std::to_string(constantValue + 1)};
 
     line.value = registerName + "," + constantName;
 }
@@ -185,47 +184,6 @@ void setValueRegister(AssemblyLine& line)
 
 void setValueMemory(AssemblyLine& line, size_t base, size_t nextAddress)
 {
-    InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
-
-    // Check if base-relative
-    if (info.b)
-    {
-        Logger::log_info("base rel: %s", line.instruction.c_str());
-        std::string displacementHex {line.objectCode.substr(3, 3)};
-        int displacementValue {};
-        tryGetInt(displacementHex, displacementValue);
-        line.value = getHex(displacementValue + base);
-    }
-        // Check if PC-relative
-    else if (info.p)
-    {
-        Logger::log_info("pc rel: %s", line.instruction.c_str());
-        std::string displacementHex {line.objectCode.substr(3, 3)};
-        int displacementValue {};
-        tryGetInt(displacementHex, displacementValue);
-        displacementValue = extend(displacementValue, 12);
-
-        line.value = getHex(displacementValue + nextAddress);
-    }
-        // Then we must be direct
-    else
-    {
-        Logger::log_info("direct: %s", line.instruction.c_str());
-        int length = info.e ? 5 : 3;
-        line.value = line.objectCode.substr(3, length);
-    }
-
-    // todo: support X
-    if (info.x)
-    {
-        Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
-    }
-
-    if (info.i && !info.n) // Immediate
-        line.value.insert(0, "#");
-
-    if (!info.i && info.n) // Indirect
-        line.value.insert(0, "@");
 }
 
 // Extracts symbol and literal information from a symbol table file.
@@ -464,6 +422,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                                 baseInfo.instruction = "BASE";
                                 baseInfo.value = result.value;
                                 baseInfo.objectCode = "";
+                                baseInfo.type = AssemblyLine::Type::Decoration;
                                 tryGetInt(baseInfo.value, currentBase);
                             }
                         }
@@ -489,10 +448,11 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
     header.instruction = "START";
     header.value = headerStartingAddressHex;
     header.objectCode = "";
+    header.type = AssemblyLine::Type::Decoration;
     lines->emplace(lines->begin(), header);
 
     size_t nextAddress {};
-    size_t currentBase {};
+    int currentBase {};
 
     for (int i {0}; i < lines->size(); i++)
     {
@@ -503,73 +463,79 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
         if (line.type == AssemblyLine::Type::Instruction)
         {
-            switch (line.instructionInfo.opcode)
+            if (line.instructionInfo.format == InstructionInfo::Format::One)
             {
-                case 24: break; // ADD
-                case 88: break; // ADDF
-                case 144: break; // ADDR
-                case 64: break; // AND
-                case 180: break; // CLEAR
-                case 40: break; // COMP
-                case 136: break; // COMPF
-                case 160: break; // COMPR
-                case 36: break; // DIV
-                case 100: break; // DIVF
-                case 156: break; // DIVR
-                case 196: break; // FIX
-                case 192: break; // FLOAT
-                case 244: break; // HIO
-                case 60: break; // J
-                case 48: break; // JEQ
-                case 52: break; // JGT
-                case 56: break; // JLT
-                case 72: break; // JSUB
-                case 0: break; // LDA
-                case 104: break; // LDB
-                case 80: break; // LDCH
-                case 112: break; // LDF
-                case 8: break; // LDL
-                case 108: break; // LDS
-                case 116: break; // LDT
-                case 4: break; // LDX
-                case 208: break; // LPS
-                case 32: break; // MUL
-                case 96: break; // MULF
-                case 152: break; // MULR
-                case 200: break; // NORM
-                case 68: break; // OR
-                case 216: break; // RD
-                case 172: break; // RMO
-                case 76: break; // RSUB
-                case 164: break; // SHIFTL
-                case 168: break; // SHIFTR
-                case 240: break; // SIO
-                case 236: break; // SSK
-                case 12: break; // STA
-                case 120: break; // STB
-                case 84: break; // STCH
-                case 128: break; // STF
-                case 212: break; // STI
-                case 20: break; // STL
-                case 124: break; // STS
-                case 232: break; // STSW
-                case 132: break; // STT
-                case 16: break; // STX
-                case 28: break; // SUB
-                case 92: break; // SUBF
-                case 148: break; // SUBR
-                case 176: break; // SVC
-                case 224: break; // TD
-                case 248: break; // TIO
-                case 44: break; // TIX
-                case 184: break; // TIXR
-                case 220: break; // WD
+                line.value = "";
+            }
+            if (line.instructionInfo.format == InstructionInfo::Format::Two)
+            {
+                if (line.instruction == "COMPR") setValueRegisterMultiple(line);
+                if (line.instruction == "DIVR") setValueRegisterMultiple(line);
+                if (line.instruction == "MULR") setValueRegisterMultiple(line);
+                if (line.instruction == "SUBR") setValueRegisterMultiple(line);
+                if (line.instruction == "ADDR") setValueRegisterMultiple(line);
+                if (line.instruction == "TIXR") setValueRegister(line);
+                if (line.instruction == "CLEAR") setValueRegister(line);
+                if (line.instruction == "SHIFTL") setValueRegisterConstant(line);
+                if (line.instruction == "SHIFTR") setValueRegisterConstant(line);
+                if (line.instruction == "SVC") setValueConstant(line);
+            }
+            if (line.instructionInfo.format == InstructionInfo::Format::ThreeOrFour)
+            {
+                InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
+
+                // Check if base-relative
+                if (info.b)
+                {
+                    Logger::log_info("base rel: %s", line.instruction.c_str());
+                    std::string displacementHex {line.objectCode.substr(3, 3)};
+                    int displacementValue {};
+                    tryGetInt(displacementHex, displacementValue);
+                    line.value = getHex(displacementValue + currentBase);
+                }
+                    // Check if PC-relative
+                else if (info.p)
+                {
+                    Logger::log_info("pc rel: %s", line.instruction.c_str());
+                    std::string displacementHex {line.objectCode.substr(3, 3)};
+                    int displacementValue {};
+                    tryGetInt(displacementHex, displacementValue);
+                    displacementValue = extend(displacementValue, 12);
+
+                    line.value = getHex(displacementValue + nextAddress);
+                }
+                    // Then we must be direct
+                else
+                {
+                    Logger::log_info("direct: %s", line.instruction.c_str());
+                    int length = info.e ? 5 : 3;
+                    line.value = line.objectCode.substr(3, length);
+                }
+
+                // todo: support X
+                if (info.x)
+                {
+                    Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
+                }
+
+                if (line.instruction == "LDB")
+                    tryGetInt(line.value, currentBase);
+
+                // Apply decorations
+
+                if (info.i && !info.n) // Immediate
+                    line.value.insert(0, "#");
+
+                if (!info.i && info.n) // Indirect
+                    line.value.insert(0, "@");
             }
 
             // Decorate format 4 instructions.
             if (line.instructionInfo.formatThreeOrFourInfo.e)
                 line.instruction.insert(0, "+");
         }
+        else if (line.instruction == "BASE")
+            line.value = getHex(currentBase);
     }
 
     AssemblyLine footer;
@@ -578,6 +544,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
     footer.instruction = "END";
     footer.value = headerProgramName;
     footer.objectCode = "";
+    footer.type = AssemblyLine::Type::Decoration;
     lines->emplace_back(footer);
 
     outData.assemblyLineCount = lines->size();
