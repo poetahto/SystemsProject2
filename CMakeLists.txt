@@ -16,11 +16,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${RUNTIME_DIR})
 set(SOURCE_NAMES
 		src/main.cpp
         src/global.hpp
-		src/instruction_file_printer.cpp
-		src/instruction_file_printer.hpp
-		src/instruction_info.hpp
-		src/sic_xc_file_reader.cpp
-		src/sic_xc_file_reader.hpp
+        src/instruction_info.hpp
 		src/logger.cpp
 		src/logger.hpp
 )

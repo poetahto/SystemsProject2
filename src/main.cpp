@@ -4,14 +4,21 @@
 #include <iomanip>
 #include <sstream>
 #include <iostream>
+#include <unordered_map>
 
-#include "sic_xc_file_reader.hpp"
+#include "instruction_info.hpp"
 #include "logger.hpp"
 #include "global.hpp"
 
-// todo: fix the hex formatting
-// todo: fill in the value column
-// todo: header start and end
+// todo: make the registers show up in value (see clear)
+// todo: make base instruction show the base
+// todo: fix the formatting
+
+struct InstructionDefinition
+{
+    std::string name;
+    InstructionInfo::Format format;
+};
 
 struct Symbol
 {
@@ -42,11 +49,20 @@ struct SymbolTableData
 
 struct AssemblyLine
 {
-    std::string address;
+    enum class Type
+    {
+        Instruction,
+        Literal
+    } type;
+
+    std::string addressHex;
     std::string label;
     std::string instruction;
     std::string value;
     std::string objectCode;
+
+    size_t addressValue;
+    InstructionInfo instructionInfo;
 };
 
 struct ObjectCodeData
@@ -212,201 +228,236 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
         }
     }
 
-    std::string line {};
-    std::ifstream objectCodeStream {fileName};
-    size_t address {};
     auto* lines = new std::vector<AssemblyLine>;
-    std::string programName {};
 
-    while (std::getline(objectCodeStream, line))
+    // Header information
+    std::string headerProgramName {};
+    std::string headerStartingAddressHex {};
+    int headerLengthBytes {};
+
+    // Do the first pass to determine addressHex, object code, label, and instruction info
+    // also we get the header info.
     {
-        if (line[0] == 'H')
+        std::string line {};
+        std::ifstream objectCodeStream {fileName};
+        size_t currentAddress {};
+
+        while (std::getline(objectCodeStream, line))
         {
-            Logger::log_info("parsing header");
-            programName = line.substr(1, 6);
-
-            std::string startingAddressHex {line.substr(7, 6)};
-            int startingAddressValue {};
-            tryGetInt(startingAddressHex, startingAddressValue);
-
-            std::string lengthBytesHex {line.substr(13, 6)};
-            int lengthBytesValue {};
-            tryGetInt(lengthBytesHex, lengthBytesValue);
-            Logger::log_info("parsed header: %s, starts at %i and has %i bytes", programName.c_str(), startingAddressValue, lengthBytesValue);
-
-            AssemblyLine result {};
-            result.address = "0000";
-            result.label = programName;
-            result.instruction = "START";
-            result.value = startingAddressHex;
-            result.objectCode = "";
-            lines->emplace_back(result);
-        }
-        else if (line[0] == 'T')
-        {
-            Logger::log_info("parsing text record");
-            std::string startingAddressHex {line.substr(1, 6)};
-            std::string lengthHex {line.substr(7, 2)};
-            int startingAddressValue, lengthValue;
-            tryGetInt(startingAddressHex, startingAddressValue);
-            tryGetInt(lengthHex, lengthValue);
-            address = startingAddressValue;
-            Logger::log_info("start: %s (%i), lengthHex: %s (%i)", startingAddressHex.c_str(), startingAddressValue, lengthHex.c_str(), lengthValue);
-
-            int index {9};
-            size_t end = address + lengthValue;
-
-            while (address < end)
+            if (line[0] == 'H')
             {
-                AssemblyLine result {};
-                int start {index};
-                bool isLdb {};
-                AssemblyLine baseInfo {};
-                int currentBase {};
+                Logger::log_info("parsing header");
+                headerProgramName = line.substr(1, 6);
+                headerStartingAddressHex = line.substr(7, 6);
 
-                // check to see if current addressHex has a label
-                for (int i {0}; i < symbolData.symbolCount; ++i)
+                std::string lengthBytesHex {line.substr(13, 6)};
+                tryGetInt(lengthBytesHex, headerLengthBytes);
+
+                Logger::log_info("parsed header: %s, starts at %s and has %i bytes", headerProgramName.c_str(), headerStartingAddressHex.c_str(), headerLengthBytes);
+            }
+            else if (line[0] == 'T')
+            {
+                Logger::log_info("parsing text record");
+
+                std::string lengthHex {line.substr(7, 2)};
+                int lengthValue;
+                tryGetInt(lengthHex, lengthValue);
+
+                std::string startingAddressHex {line.substr(1, 6)};
+                int startingAddressValue;
+                tryGetInt(startingAddressHex, startingAddressValue);
+
+                currentAddress = startingAddressValue;
+                Logger::log_info("start: %s (%i), lengthHex: %s (%i)", startingAddressHex.c_str(), startingAddressValue, lengthHex.c_str(), lengthValue);
+
+                int index {9};
+                size_t end = currentAddress + lengthValue;
+
+                while (currentAddress < end)
                 {
-                    if (address == symbolData.symbols[i].addressValue)
-                        result.label = symbolData.symbols[i].name;
-                }
+                    AssemblyLine result {};
+                    int start {index};
+                    bool isLdb {};
+                    AssemblyLine baseInfo {};
+                    int currentBase {};
 
-                // check to see if current addressHex is a literal
-                bool foundLiteral {false};
-
-                for (int i {0}; i < symbolData.literalCount; ++i)
-                {
-                    Literal cur {symbolData.literals[i]};
-
-                    if (address == cur.addressValue)
+                    // check to see if current addressHex has a label
+                    for (int i {0}; i < symbolData.symbolCount; ++i)
                     {
-                        result.address = cur.addressHex;
-                        result.label = cur.name;
-                        result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
-                        result.value = cur.value;
-                        result.objectCode = getBetween(cur.value, '\'');
-                        index += cur.lengthValue;
-                        foundLiteral = true;
+                        if (currentAddress == symbolData.symbols[i].addressValue)
+                            result.label = symbolData.symbols[i].name;
                     }
-                }
 
-                // Only parse an instruction if we didn't have a literal
-                if (!foundLiteral)
-                {
-                    // Now we can assume we found an instruction to parse.
-                    std::string opCodeHex {line.substr(index, 2)};
-                    index += 2;
-                    int opCodeAndNI {};
-                    tryGetInt(opCodeHex, opCodeAndNI);
-                    int opCodeValue = opCodeAndNI & 0b11111100;
+                    // check to see if current addressHex is a literal
+                    bool foundLiteral {false};
 
-                    // Make sure our table contains the opcode
-                    if (instructionTable.count(opCodeValue) == 0)
-                        return false;
-
-                    InstructionDefinition instructionDefinition = instructionTable[opCodeValue];
-                    result.instruction = instructionDefinition.name;
-
-                    if (instructionDefinition.format == InstructionInfo::Format::Two)
+                    for (int i {0}; i < symbolData.literalCount; ++i)
                     {
-                        // todo: handle format 2
+                        Literal cur {symbolData.literals[i]};
+
+                        if (currentAddress == cur.addressValue)
+                        {
+                            result.type = AssemblyLine::Type::Literal;
+                            result.addressHex = cur.addressHex;
+                            result.addressValue = currentAddress;
+                            result.label = cur.name;
+                            result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
+                            result.value = cur.value;
+                            result.objectCode = getBetween(cur.value, '\'');
+                            index += cur.lengthValue;
+                            foundLiteral = true;
+                        }
+                    }
+
+                    // Only parse an instruction if we didn't have a literal
+                    if (!foundLiteral)
+                    {
+                        // Now we can assume we found an instruction to parse.
+                        std::string opCodeHex {line.substr(index, 2)};
                         index += 2;
-                    }
-                    else if (instructionDefinition.format == InstructionInfo::Format::ThreeOrFour)
-                    {
-                        bool n, i, x, b, p, e;
+                        int opCodeAndNI {};
+                        tryGetInt(opCodeHex, opCodeAndNI);
+                        int opCodeValue = opCodeAndNI & 0b11111100;
 
-                        n = (opCodeAndNI & 0b00000010) != 0;
-                        i = (opCodeAndNI & 0b00000001) != 0;
+                        // Make sure our table contains the opcode
+                        if (instructionTable.count(opCodeValue) == 0)
+                            return false;
 
-                        std::string nixbpeHex {line.substr(index, 1)};
-                        index += 1;
-                        int nixbpeValue {};
-                        tryGetInt(nixbpeHex, nixbpeValue);
+                        InstructionDefinition instructionDefinition = instructionTable[opCodeValue];
+                        result.type = AssemblyLine::Type::Instruction;
+                        result.instruction = instructionDefinition.name;
+                        result.addressValue = currentAddress;
+                        result.instructionInfo.format = instructionDefinition.format;
 
-                        x = (nixbpeValue & 0b1000) != 0;
-                        b = (nixbpeValue & 0b0100) != 0;
-                        p = (nixbpeValue & 0b0010) != 0;
-                        e = (nixbpeValue & 0b0001) != 0;
-
-                        // Check if base-relative
-                        if (b)
+                        if (instructionDefinition.format == InstructionInfo::Format::Two)
                         {
-                            Logger::log_info("base rel: %s", instructionDefinition.name.c_str());
-                            std::string displacementHex {line.substr(index, 3)};
-                            int displacementValue {};
-                            tryGetInt(displacementHex, displacementValue);
-                            index += 3;
-
-                            result.value = getHex(displacementValue + currentBase);
+                            index += 2;
                         }
-                        // Check if PC-relative
-                        else if (p)
+                        else if (instructionDefinition.format == InstructionInfo::Format::ThreeOrFour)
                         {
-                            Logger::log_info("pc rel: %s", instructionDefinition.name.c_str());
-                            std::string displacementHex {line.substr(index, 3)};
-                            int displacementValue {};
-                            tryGetInt(displacementHex, displacementValue);
-                            index += 3;
-                            displacementValue = extend(displacementValue, 12);
+                            InstructionInfo::FormatThreeOrFourInfo& info {result.instructionInfo.formatThreeOrFourInfo};
+                            info.n = (opCodeAndNI & 0b00000010) != 0;
+                            info.i = (opCodeAndNI & 0b00000001) != 0;
 
-                            result.value = getHex(displacementValue + (address + ((index - start) / 2)));
-                        }
-                        // Then we must be direct
-                        else
-                        {
-                            Logger::log_info("direct: %s", instructionDefinition.name.c_str());
-                            int length = e ? 5 : 3;
-                            result.value = line.substr(index, length);
-                            index += length;
+                            std::string nixbpeHex {line.substr(index, 1)};
+                            index += 1;
+                            int nixbpeValue {};
+                            tryGetInt(nixbpeHex, nixbpeValue);
+
+                            info.x = (nixbpeValue & 0b1000) != 0;
+                            info.b = (nixbpeValue & 0b0100) != 0;
+                            info.p = (nixbpeValue & 0b0010) != 0;
+                            info.e = (nixbpeValue & 0b0001) != 0;
+                            index += info.e ? 5 : 3;
+
+                            if (instructionDefinition.name == "LDB")
+                            {
+                                isLdb = true;
+                                baseInfo.addressHex = "";
+                                baseInfo.label = "";
+                                baseInfo.instruction = "BASE";
+                                baseInfo.value = result.value;
+                                baseInfo.objectCode = "";
+                                tryGetInt(baseInfo.value, currentBase);
+                            }
                         }
 
-                        if (x)
-                        {
-                            Logger::log_info("ohhhhh X at %s", result.instruction.c_str());
-                        }
-
-                        if (instructionDefinition.name == "LDB")
-                        {
-                            isLdb = true;
-                            baseInfo.address = "";
-                            baseInfo.label = "";
-                            baseInfo.instruction = "BASE";
-                            baseInfo.value = result.value;
-                            baseInfo.objectCode = "";
-                            tryGetInt(baseInfo.value, currentBase);
-                        }
-
-                        // Insert decorative characters
-
-                        if (e) // Direct
-                            result.instruction.insert(0, "+");
-
-                        if (i && !n) // Immediate
-                            result.value.insert(0, "#");
-
-                        if (!i && n) // Indirect
-                            result.value.insert(0, "@");
+                        result.objectCode = line.substr(start, index - start);
+                        result.addressHex = getHex(currentAddress);
                     }
 
-                    result.objectCode = line.substr(start, index - start);
-                    result.address = getHex(address);
+                    currentAddress += (index - start) / 2;
+                    lines->emplace_back(result);
+
+                    if (isLdb)
+                        lines->emplace_back(baseInfo);
+                }
+            }
+        }
+    }
+
+    // Finish parsing the instructions, and write into the assembly lines
+    AssemblyLine header {};
+    header.addressHex = "0000";
+    header.label = headerProgramName;
+    header.instruction = "START";
+    header.value = headerStartingAddressHex;
+    header.objectCode = "";
+    lines->emplace(lines->begin(), header);
+
+    size_t nextAddress {};
+    size_t currentBase {};
+
+    for (int i {0}; i < lines->size(); i++)
+    {
+        AssemblyLine& line = (*lines)[i];
+
+        if (i < lines->size() - 1)
+            nextAddress = (*lines)[i + 1].addressValue;
+
+        if (line.type == AssemblyLine::Type::Instruction)
+        {
+            if (line.instructionInfo.format == InstructionInfo::Format::Two)
+            {
+
+            }
+            if (line.instructionInfo.format == InstructionInfo::Format::ThreeOrFour)
+            {
+                InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
+
+                // Check if base-relative
+                if (info.b)
+                {
+                    Logger::log_info("base rel: %s", line.instruction.c_str());
+                    std::string displacementHex {line.objectCode.substr(3, 3)};
+                    int displacementValue {};
+                    tryGetInt(displacementHex, displacementValue);
+                    line.value = getHex(displacementValue + currentBase);
+                }
+                // Check if PC-relative
+                else if (info.p)
+                {
+                    Logger::log_info("pc rel: %s", line.instruction.c_str());
+                    std::string displacementHex {line.objectCode.substr(3, 3)};
+                    int displacementValue {};
+                    tryGetInt(displacementHex, displacementValue);
+                    displacementValue = extend(displacementValue, 12);
+
+                    line.value = getHex(displacementValue + nextAddress);
+                }
+                // Then we must be direct
+                else
+                {
+                    Logger::log_info("direct: %s", line.instruction.c_str());
+                    int length = info.e ? 5 : 3;
+                    line.value = line.objectCode.substr(3, length);
                 }
 
-                address += (index - start) / 2;
-                lines->emplace_back(result);
+                // todo: support X
+                if (info.x)
+                {
+                    Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
+                }
 
-                if (isLdb)
-                    lines->emplace_back(baseInfo);
+                // Insert decorative characters
+
+                if (info.e) // Direct
+                    line.instruction.insert(0, "+");
+
+                if (info.i && !info.n) // Immediate
+                    line.value.insert(0, "#");
+
+                if (!info.i && info.n) // Indirect
+                    line.value.insert(0, "@");
             }
         }
     }
 
     AssemblyLine footer;
-    footer.address = "";
+    footer.addressHex = "";
     footer.label = "";
     footer.instruction = "END";
-    footer.value = programName;
+    footer.value = headerProgramName;
     footer.objectCode = "";
     lines->emplace_back(footer);
 
@@ -425,7 +476,7 @@ void outputObjectCodeData(const ObjectCodeData& data, const std::string& outputF
     {
         AssemblyLine cur {data.assemblyLines[i]};
 
-        outputFileStream << std::setw(tabSize) << std::left << cur.address
+        outputFileStream << std::setw(tabSize) << std::left << cur.addressHex
                          << std::setw(tabSize) << std::left << cur.label
                          << std::setw(tabSize) << std::left << cur.instruction
                          << std::setw(tabSize) << std::left << cur.value

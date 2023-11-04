@@ -34,11 +34,7 @@ struct InstructionInfo
         bool n, i, x, b, p, e;
     };
 
-    // Data common to all instructions.
-    Format format;
-    std::string name;
-    std::string objectCode{};
-    u8 opCode;
+    Format format {};
 
     // Data that may be unique to a certain instruction format.
     union
