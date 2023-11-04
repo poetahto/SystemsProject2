@@ -45,7 +45,7 @@ struct AssemblyLine
     std::string address;
     std::string label;
     std::string instruction;
-    std::string value1;
+    std::string value;
     std::string objectCode;
 };
 
@@ -54,6 +54,31 @@ struct ObjectCodeData
     u32 assemblyLineCount {};
     AssemblyLine* assemblyLines {};
 };
+
+int extend(int value, int bits)
+{
+    bits--;
+    bool isNegative {value >> (bits) != 0};
+
+    if (isNegative)
+    {
+        // Create the filling mask
+        int remaining {32 - bits};
+        int fillingMask {};
+
+        for (int i {0}; i < remaining; ++i)
+        {
+            fillingMask = fillingMask << 1;
+            fillingMask = fillingMask | 1;
+        }
+
+        fillingMask = fillingMask << bits;
+
+        return value | fillingMask;
+    }
+
+    return value;
+}
 
 bool tryGetInt(const std::string& hex, int& outResult)
 {
@@ -152,23 +177,6 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
 
 bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& symbolData, ObjectCodeData& outData)
 {
-    // debug print symbols
-    {
-        // Iterate on symbols
-        for (int i = 0; i < symbolData.symbolCount; ++i)
-        {
-            Symbol cur {symbolData.symbols[i]};
-            Logger::log_info("symbol: %s %s %s", cur.name.c_str(), cur.addressHex.c_str(), cur.flags.c_str());
-        }
-
-        // Iterate on literals
-        for (int i = 0; i < symbolData.literalCount; ++i)
-        {
-            Literal cur {symbolData.literals[i]};
-            Logger::log_info("literal: %s %s %s %s", cur.name.c_str(), cur.value.c_str(), cur.lengthHex.c_str(), cur.addressHex.c_str());
-        }
-    }
-
     std::unordered_map<u8, InstructionDefinition> instructionTable {};
 
     // Parse the instructions from a CSV file
@@ -208,13 +216,31 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
     std::ifstream objectCodeStream {fileName};
     size_t address {};
     auto* lines = new std::vector<AssemblyLine>;
+    std::string programName {};
 
     while (std::getline(objectCodeStream, line))
     {
-        // todo: parse header
         if (line[0] == 'H')
         {
             Logger::log_info("parsing header");
+            programName = line.substr(1, 6);
+
+            std::string startingAddressHex {line.substr(7, 6)};
+            int startingAddressValue {};
+            tryGetInt(startingAddressHex, startingAddressValue);
+
+            std::string lengthBytesHex {line.substr(13, 6)};
+            int lengthBytesValue {};
+            tryGetInt(lengthBytesHex, lengthBytesValue);
+            Logger::log_info("parsed header: %s, starts at %i and has %i bytes", programName.c_str(), startingAddressValue, lengthBytesValue);
+
+            AssemblyLine result {};
+            result.address = "0000";
+            result.label = programName;
+            result.instruction = "START";
+            result.value = startingAddressHex;
+            result.objectCode = "";
+            lines->emplace_back(result);
         }
         else if (line[0] == 'T')
         {
@@ -234,6 +260,9 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
             {
                 AssemblyLine result {};
                 int start {index};
+                bool isLdb {};
+                AssemblyLine baseInfo {};
+                int currentBase {};
 
                 // check to see if current addressHex has a label
                 for (int i {0}; i < symbolData.symbolCount; ++i)
@@ -254,7 +283,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         result.address = cur.addressHex;
                         result.label = cur.name;
                         result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
-                        result.value1 = cur.value;
+                        result.value = cur.value;
                         result.objectCode = getBetween(cur.value, '\'');
                         index += cur.lengthValue;
                         foundLiteral = true;
@@ -267,9 +296,9 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     // Now we can assume we found an instruction to parse.
                     std::string opCodeHex {line.substr(index, 2)};
                     index += 2;
-                    int opCodeValue {};
-                    tryGetInt(opCodeHex, opCodeValue);
-                    opCodeValue = opCodeValue & 0b11111100;
+                    int opCodeAndNI {};
+                    tryGetInt(opCodeHex, opCodeAndNI);
+                    int opCodeValue = opCodeAndNI & 0b11111100;
 
                     // Make sure our table contains the opcode
                     if (instructionTable.count(opCodeValue) == 0)
@@ -287,8 +316,8 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     {
                         bool n, i, x, b, p, e;
 
-                        n = (opCodeValue & 0b00000010) != 0;
-                        i = (opCodeValue & 0b00000001) != 0;
+                        n = (opCodeAndNI & 0b00000010) != 0;
+                        i = (opCodeAndNI & 0b00000001) != 0;
 
                         std::string nixbpeHex {line.substr(index, 1)};
                         index += 1;
@@ -300,10 +329,64 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         p = (nixbpeValue & 0b0010) != 0;
                         e = (nixbpeValue & 0b0001) != 0;
 
-                        if (e) index += 5;
-                        else index += 3;
+                        // Check if base-relative
+                        if (b)
+                        {
+                            Logger::log_info("base rel: %s", instructionDefinition.name.c_str());
+                            std::string displacementHex {line.substr(index, 3)};
+                            int displacementValue {};
+                            tryGetInt(displacementHex, displacementValue);
+                            index += 3;
 
-                        // todo: handle format 3/4
+                            result.value = getHex(displacementValue + currentBase);
+                        }
+                        // Check if PC-relative
+                        else if (p)
+                        {
+                            Logger::log_info("pc rel: %s", instructionDefinition.name.c_str());
+                            std::string displacementHex {line.substr(index, 3)};
+                            int displacementValue {};
+                            tryGetInt(displacementHex, displacementValue);
+                            index += 3;
+                            displacementValue = extend(displacementValue, 12);
+
+                            result.value = getHex(displacementValue + (address + ((index - start) / 2)));
+                        }
+                        // Then we must be direct
+                        else
+                        {
+                            Logger::log_info("direct: %s", instructionDefinition.name.c_str());
+                            int length = e ? 5 : 3;
+                            result.value = line.substr(index, length);
+                            index += length;
+                        }
+
+                        if (x)
+                        {
+                            Logger::log_info("ohhhhh X at %s", result.instruction.c_str());
+                        }
+
+                        if (instructionDefinition.name == "LDB")
+                        {
+                            isLdb = true;
+                            baseInfo.address = "";
+                            baseInfo.label = "";
+                            baseInfo.instruction = "BASE";
+                            baseInfo.value = result.value;
+                            baseInfo.objectCode = "";
+                            tryGetInt(baseInfo.value, currentBase);
+                        }
+
+                        // Insert decorative characters
+
+                        if (e) // Direct
+                            result.instruction.insert(0, "+");
+
+                        if (i && !n) // Immediate
+                            result.value.insert(0, "#");
+
+                        if (!i && n) // Indirect
+                            result.value.insert(0, "@");
                     }
 
                     result.objectCode = line.substr(start, index - start);
@@ -312,9 +395,20 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
                 address += (index - start) / 2;
                 lines->emplace_back(result);
+
+                if (isLdb)
+                    lines->emplace_back(baseInfo);
             }
         }
     }
+
+    AssemblyLine footer;
+    footer.address = "";
+    footer.label = "";
+    footer.instruction = "END";
+    footer.value = programName;
+    footer.objectCode = "";
+    lines->emplace_back(footer);
 
     outData.assemblyLineCount = lines->size();
     outData.assemblyLines = lines->data();
@@ -334,7 +428,7 @@ void outputObjectCodeData(const ObjectCodeData& data, const std::string& outputF
         outputFileStream << std::setw(tabSize) << std::left << cur.address
                          << std::setw(tabSize) << std::left << cur.label
                          << std::setw(tabSize) << std::left << cur.instruction
-                         << std::setw(tabSize) << std::left << cur.value1
+                         << std::setw(tabSize) << std::left << cur.value
                          << std::setw(tabSize) << std::left << cur.objectCode
                          << std::endl;
     }
