@@ -124,6 +124,110 @@ std::string getBetween(const std::string& value, char delimiter)
     return value.substr(start, end - start);
 }
 
+static std::unordered_map<int, std::string> s_registerNameMapping {
+        {0, "A"},
+        {1, "X"},
+        {2, "L"},
+        {3, "B"},
+        {4, "S"},
+        {5, "T"},
+        {6, "F"},
+        {8, "PC"},
+        {9, "SW"},
+};
+
+void setValueConstant(AssemblyLine& line)
+{
+    std::string constantHex {line.objectCode.substr(2, 1)};
+    int constantValue;
+    tryGetInt(constantHex, constantValue);
+    line.value = std::to_string(constantValue);
+}
+
+void setValueRegisterConstant(AssemblyLine& line)
+{
+    std::string registerHex {line.objectCode.substr(2, 1)};
+    int registerValue;
+    tryGetInt(registerHex, registerValue);
+    std::string registerName {s_registerNameMapping[registerValue]};
+
+    std::string constantHex {line.objectCode.substr(3, 1)};
+    int constantValue;
+    tryGetInt(constantHex, constantValue);
+    std::string constantName {std::to_string(constantValue)};
+
+    line.value = registerName + "," + constantName;
+}
+
+void setValueRegisterMultiple(AssemblyLine& line)
+{
+    std::string registerHex1 {line.objectCode.substr(2, 1)};
+    int registerValue1;
+    tryGetInt(registerHex1, registerValue1);
+    std::string registerName1 {s_registerNameMapping[registerValue1]};
+
+    std::string registerHex2 {line.objectCode.substr(3, 1)};
+    int registerValue2;
+    tryGetInt(registerHex2, registerValue2);
+    std::string registerName2 {s_registerNameMapping[registerValue2]};
+
+    line.value = registerName1 + "," + registerName2;
+}
+
+void setValueRegister(AssemblyLine& line)
+{
+    std::string registerHex {line.objectCode.substr(2, 1)};
+    int registerValue;
+    tryGetInt(registerHex, registerValue);
+
+    line.value = s_registerNameMapping[registerValue];
+}
+
+void setValueMemory(AssemblyLine& line, size_t base, size_t nextAddress)
+{
+    InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
+
+    // Check if base-relative
+    if (info.b)
+    {
+        Logger::log_info("base rel: %s", line.instruction.c_str());
+        std::string displacementHex {line.objectCode.substr(3, 3)};
+        int displacementValue {};
+        tryGetInt(displacementHex, displacementValue);
+        line.value = getHex(displacementValue + base);
+    }
+        // Check if PC-relative
+    else if (info.p)
+    {
+        Logger::log_info("pc rel: %s", line.instruction.c_str());
+        std::string displacementHex {line.objectCode.substr(3, 3)};
+        int displacementValue {};
+        tryGetInt(displacementHex, displacementValue);
+        displacementValue = extend(displacementValue, 12);
+
+        line.value = getHex(displacementValue + nextAddress);
+    }
+        // Then we must be direct
+    else
+    {
+        Logger::log_info("direct: %s", line.instruction.c_str());
+        int length = info.e ? 5 : 3;
+        line.value = line.objectCode.substr(3, length);
+    }
+
+    // todo: support X
+    if (info.x)
+    {
+        Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
+    }
+
+    if (info.i && !info.n) // Immediate
+        line.value.insert(0, "#");
+
+    if (!info.i && info.n) // Indirect
+        line.value.insert(0, "@");
+}
+
 // Extracts symbol and literal information from a symbol table file.
 bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
 {
@@ -225,6 +329,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
             tryGetArg(line, 2, &opcodeHex, ',');
             u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
             instructionTable.emplace(opcodeValue, definition);
+            Logger::log_info("%s: %i", definition.name.c_str(), opcodeValue);
         }
     }
 
@@ -328,6 +433,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         result.instruction = instructionDefinition.name;
                         result.addressValue = currentAddress;
                         result.instructionInfo.format = instructionDefinition.format;
+                        result.instructionInfo.opcode = opCodeValue;
 
                         if (instructionDefinition.format == InstructionInfo::Format::Two)
                         {
@@ -397,59 +503,72 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
         if (line.type == AssemblyLine::Type::Instruction)
         {
-            if (line.instructionInfo.format == InstructionInfo::Format::Two)
+            switch (line.instructionInfo.opcode)
             {
-
+                case 24: break; // ADD
+                case 88: break; // ADDF
+                case 144: break; // ADDR
+                case 64: break; // AND
+                case 180: break; // CLEAR
+                case 40: break; // COMP
+                case 136: break; // COMPF
+                case 160: break; // COMPR
+                case 36: break; // DIV
+                case 100: break; // DIVF
+                case 156: break; // DIVR
+                case 196: break; // FIX
+                case 192: break; // FLOAT
+                case 244: break; // HIO
+                case 60: break; // J
+                case 48: break; // JEQ
+                case 52: break; // JGT
+                case 56: break; // JLT
+                case 72: break; // JSUB
+                case 0: break; // LDA
+                case 104: break; // LDB
+                case 80: break; // LDCH
+                case 112: break; // LDF
+                case 8: break; // LDL
+                case 108: break; // LDS
+                case 116: break; // LDT
+                case 4: break; // LDX
+                case 208: break; // LPS
+                case 32: break; // MUL
+                case 96: break; // MULF
+                case 152: break; // MULR
+                case 200: break; // NORM
+                case 68: break; // OR
+                case 216: break; // RD
+                case 172: break; // RMO
+                case 76: break; // RSUB
+                case 164: break; // SHIFTL
+                case 168: break; // SHIFTR
+                case 240: break; // SIO
+                case 236: break; // SSK
+                case 12: break; // STA
+                case 120: break; // STB
+                case 84: break; // STCH
+                case 128: break; // STF
+                case 212: break; // STI
+                case 20: break; // STL
+                case 124: break; // STS
+                case 232: break; // STSW
+                case 132: break; // STT
+                case 16: break; // STX
+                case 28: break; // SUB
+                case 92: break; // SUBF
+                case 148: break; // SUBR
+                case 176: break; // SVC
+                case 224: break; // TD
+                case 248: break; // TIO
+                case 44: break; // TIX
+                case 184: break; // TIXR
+                case 220: break; // WD
             }
-            if (line.instructionInfo.format == InstructionInfo::Format::ThreeOrFour)
-            {
-                InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
 
-                // Check if base-relative
-                if (info.b)
-                {
-                    Logger::log_info("base rel: %s", line.instruction.c_str());
-                    std::string displacementHex {line.objectCode.substr(3, 3)};
-                    int displacementValue {};
-                    tryGetInt(displacementHex, displacementValue);
-                    line.value = getHex(displacementValue + currentBase);
-                }
-                // Check if PC-relative
-                else if (info.p)
-                {
-                    Logger::log_info("pc rel: %s", line.instruction.c_str());
-                    std::string displacementHex {line.objectCode.substr(3, 3)};
-                    int displacementValue {};
-                    tryGetInt(displacementHex, displacementValue);
-                    displacementValue = extend(displacementValue, 12);
-
-                    line.value = getHex(displacementValue + nextAddress);
-                }
-                // Then we must be direct
-                else
-                {
-                    Logger::log_info("direct: %s", line.instruction.c_str());
-                    int length = info.e ? 5 : 3;
-                    line.value = line.objectCode.substr(3, length);
-                }
-
-                // todo: support X
-                if (info.x)
-                {
-                    Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
-                }
-
-                // Insert decorative characters
-
-                if (info.e) // Direct
-                    line.instruction.insert(0, "+");
-
-                if (info.i && !info.n) // Immediate
-                    line.value.insert(0, "#");
-
-                if (!info.i && info.n) // Indirect
-                    line.value.insert(0, "@");
-            }
+            // Decorate format 4 instructions.
+            if (line.instructionInfo.formatThreeOrFourInfo.e)
+                line.instruction.insert(0, "+");
         }
     }
 

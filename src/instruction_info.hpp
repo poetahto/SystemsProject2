@@ -35,6 +35,7 @@ struct InstructionInfo
     };
 
     Format format {};
+    int opcode {};
 
     // Data that may be unique to a certain instruction format.
     union
