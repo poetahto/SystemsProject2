@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < objectCodeData.assemblyLineCount; ++i)
         {
-            AssemblyLine cur {objectCodeData.assemblyLines[i]};
+            AssemblyLine cur = objectCodeData.assemblyLines[i];
 
             outputFileStream << std::setw(tabSize) << std::left << cur.addressHex
                              << std::setw(tabSize) << std::left << cur.label
