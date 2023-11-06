@@ -52,16 +52,16 @@ struct AssemblyLine
         Instruction,
         Literal,
         Decoration,
-    } type;
+    } type {};
 
-    std::string addressHex;
-    std::string label;
-    std::string instruction;
-    std::string value;
-    std::string objectCode;
+    std::string addressHex {};
+    std::string label {};
+    std::string instruction {};
+    std::string value {};
+    std::string objectCode {};
 
-    size_t addressValue;
-    InstructionInfo instructionInfo;
+    size_t addressValue {};
+    InstructionInfo instructionInfo {};
 };
 
 struct ObjectCodeData
@@ -112,7 +112,7 @@ template<typename T>
 std::string getHex(T value)
 {
     std::ostringstream ss {};
-    ss << std::hex << value;
+    ss << std::hex << std::setfill('0') << std::setw(4) << std::uppercase << value;
     return ss.str();
 }
 
@@ -361,7 +361,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         if (currentAddress == cur.addressValue)
                         {
                             result.type = AssemblyLine::Type::Literal;
-                            result.addressHex = cur.addressHex;
+                            result.addressHex = getHex(currentAddress);
                             result.addressValue = currentAddress;
                             result.label = cur.name;
                             result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
@@ -442,17 +442,21 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
     }
 
     // Finish parsing the instructions, and write into the assembly lines
+    int startingAddressValue;
+    tryGetInt(headerStartingAddressHex, startingAddressValue);
+
     AssemblyLine header {};
     header.addressHex = "0000";
     header.label = headerProgramName;
     header.instruction = "START";
-    header.value = headerStartingAddressHex;
+    header.value = std::to_string(startingAddressValue);
     header.objectCode = "";
     header.type = AssemblyLine::Type::Decoration;
     lines->emplace(lines->begin(), header);
 
     size_t nextAddress {};
     int currentBase {};
+    int currentX {};
 
     for (int i {0}; i < lines->size(); i++)
     {
@@ -491,6 +495,10 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     std::string displacementHex {line.objectCode.substr(3, 3)};
                     int displacementValue {};
                     tryGetInt(displacementHex, displacementValue);
+
+                    if (info.x)
+                        displacementValue += currentX;
+
                     line.value = getHex(displacementValue + currentBase);
                 }
                     // Check if PC-relative
@@ -502,6 +510,9 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     tryGetInt(displacementHex, displacementValue);
                     displacementValue = extend(displacementValue, 12);
 
+                    if (info.x)
+                        displacementValue += currentX;
+
                     line.value = getHex(displacementValue + nextAddress);
                 }
                     // Then we must be direct
@@ -509,17 +520,24 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                 {
                     Logger::log_info("direct: %s", line.instruction.c_str());
                     int length = info.e ? 5 : 3;
-                    line.value = line.objectCode.substr(3, length);
-                }
+                    std::string addressHex {line.objectCode.substr(3, length)};
+                    int addressValue;
+                    tryGetInt(addressHex, addressValue);
 
-                // todo: support X
-                if (info.x)
-                {
-                    Logger::log_info("ohhhhh X at %s", line.instruction.c_str());
+                    if (info.x)
+                        addressValue += currentX;
+
+                    line.value = getHex(addressValue);
                 }
 
                 if (line.instruction == "LDB")
                     tryGetInt(line.value, currentBase);
+
+                if (line.instruction == "LDX")
+                    tryGetInt(line.value, currentX);
+
+                if (line.instruction == "ADD")
+                    line.instruction = "ADD";
 
                 // Apply decorations
 
@@ -534,6 +552,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
             if (line.instructionInfo.formatThreeOrFourInfo.e)
                 line.instruction.insert(0, "+");
         }
+
         else if (line.instruction == "BASE")
             line.value = getHex(currentBase);
     }
