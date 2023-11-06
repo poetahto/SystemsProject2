@@ -15,10 +15,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${RUNTIME_DIR})
 
 set(SOURCE_NAMES
 		src/main.cpp
-        src/global.hpp
+		src/types.hpp
         src/instruction_info.hpp
 		src/logger.cpp
 		src/logger.hpp
+        src/string_parsing_tools.hpp
+		src/string_parsing_tools.cpp
 )
 
 add_executable(disassem ${SOURCE_NAMES})
@@ -28,7 +30,6 @@ set(ASSET_NAMES
 		${CMAKE_SOURCE_DIR}/assets/out.lst
 		${CMAKE_SOURCE_DIR}/assets/test.obj
 		${CMAKE_SOURCE_DIR}/assets/test.sym
-		${CMAKE_SOURCE_DIR}/assets/opcode_table.csv
 )
 
 add_custom_target(copy-assets ALL

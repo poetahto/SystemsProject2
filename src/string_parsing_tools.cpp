@@ -1,22 +1,28 @@
-// Helper type definitions
-// Date: 28-Oct-23
-// Author: Daniel Walls
-// RedID: 825776127
+#include "string_parsing_tools.hpp"
 
-#ifndef ASSIG2_TYPES_H
-#define ASSIG2_TYPES_H
+bool StringParsingTools::tryGetInt(const std::string& hex, int& outResult)
+{
+    try
+    {
+        outResult = std::stoi(hex, nullptr, 16);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
 
-#include <cstdint>
-
-typedef uint8_t u8;
-typedef int8_t s8;
-typedef uint16_t u16;
-typedef int16_t s16;
-typedef uint32_t u32;
-typedef int32_t s32;
+// Finds a substring within two characters.
+std::string StringParsingTools::getBetween(const std::string& value, char delimiter)
+{
+    size_t start {value.find_first_of(delimiter) + 1};
+    size_t end {value.find_first_of(delimiter, start)};
+    return value.substr(start, end - start);
+}
 
 // Tries to extract a word at an index from a line.
-inline bool tryGetArg(const std::string& line, size_t index, std::string* outResult, char delimiter = ' ')
+bool StringParsingTools::tryGetArg(const std::string& line, size_t index, std::string* outResult, char delimiter)
 {
     size_t argStart {};
 
@@ -42,5 +48,3 @@ inline bool tryGetArg(const std::string& line, size_t index, std::string* outRes
 
     return true;
 }
-
-#endif // ASSIG2_TYPES_H

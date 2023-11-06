@@ -1,19 +1,28 @@
 #include <string>
 #include <fstream>
+#include <utility>
 #include <vector>
 #include <iomanip>
-#include <sstream>
 #include <iostream>
 #include <unordered_map>
 
+#include "string_parsing_tools.hpp"
 #include "instruction_info.hpp"
 #include "logger.hpp"
-#include "global.hpp"
+#include "types.hpp"
 
-// todo: fix the formatting
+// todo: clean up
 
 struct InstructionDefinition
 {
+    InstructionDefinition(std::string name, InstructionInfo::Format format) : name {std::move(name)}, format{format}
+    {
+    }
+
+    InstructionDefinition() : name {}, format {}
+    {
+    }
+
     std::string name;
     InstructionInfo::Format format;
 };
@@ -38,11 +47,11 @@ struct Literal
 
 struct SymbolTableData
 {
-    u32 symbolCount {};
-    Symbol* symbols {};
+    u32 symbolCount;
+    Symbol* symbols;
 
-    u32 literalCount {};
-    Literal* literals {};
+    u32 literalCount;
+    Literal* literals;
 };
 
 struct AssemblyLine
@@ -52,24 +61,26 @@ struct AssemblyLine
         Instruction,
         Literal,
         Decoration,
-    } type {};
 
-    std::string addressHex {};
-    std::string label {};
-    std::string instruction {};
-    std::string value {};
-    std::string objectCode {};
+    } type;
 
-    size_t addressValue {};
-    InstructionInfo instructionInfo {};
+    std::string addressHex;
+    std::string label;
+    std::string instruction;
+    std::string value;
+    std::string objectCode;
+
+    size_t addressValue;
+    InstructionInfo instructionInfo;
 };
 
 struct ObjectCodeData
 {
-    u32 assemblyLineCount {};
-    AssemblyLine* assemblyLines {};
+    u32 assemblyLineCount;
+    AssemblyLine* assemblyLines;
 };
 
+// Adds leading ones or zeros to a signed integer (e.g. 12bit -> 16 bit)
 int extend(int value, int bits)
 {
     bits--;
@@ -95,34 +106,6 @@ int extend(int value, int bits)
     return value;
 }
 
-bool tryGetInt(const std::string& hex, int& outResult)
-{
-    try
-    {
-        outResult = std::stoi(hex, nullptr, 16);
-        return true;
-    }
-    catch (...)
-    {
-        return false;
-    }
-}
-
-template<typename T>
-std::string getHex(T value)
-{
-    std::ostringstream ss {};
-    ss << std::hex << std::setfill('0') << std::setw(4) << std::uppercase << value;
-    return ss.str();
-}
-
-std::string getBetween(const std::string& value, char delimiter)
-{
-    size_t start {value.find_first_of(delimiter) + 1};
-    size_t end {value.find_first_of(delimiter, start)};
-    return value.substr(start, end - start);
-}
-
 static std::unordered_map<int, std::string> s_registerNameMapping {
         {0, "A"},
         {1, "X"},
@@ -139,7 +122,7 @@ void setValueConstant(AssemblyLine& line)
 {
     std::string constantHex {line.objectCode.substr(2, 1)};
     int constantValue;
-    tryGetInt(constantHex, constantValue);
+    StringParsingTools::tryGetInt(constantHex, constantValue);
     line.value = std::to_string(constantValue);
 }
 
@@ -147,12 +130,12 @@ void setValueRegisterConstant(AssemblyLine& line)
 {
     std::string registerHex {line.objectCode.substr(2, 1)};
     int registerValue;
-    tryGetInt(registerHex, registerValue);
+    StringParsingTools::tryGetInt(registerHex, registerValue);
     std::string registerName {s_registerNameMapping[registerValue]};
 
     std::string constantHex {line.objectCode.substr(3, 1)};
     int constantValue;
-    tryGetInt(constantHex, constantValue);
+    StringParsingTools::tryGetInt(constantHex, constantValue);
     std::string constantName {std::to_string(constantValue + 1)};
 
     line.value = registerName + "," + constantName;
@@ -162,12 +145,12 @@ void setValueRegisterMultiple(AssemblyLine& line)
 {
     std::string registerHex1 {line.objectCode.substr(2, 1)};
     int registerValue1;
-    tryGetInt(registerHex1, registerValue1);
+    StringParsingTools::tryGetInt(registerHex1, registerValue1);
     std::string registerName1 {s_registerNameMapping[registerValue1]};
 
     std::string registerHex2 {line.objectCode.substr(3, 1)};
     int registerValue2;
-    tryGetInt(registerHex2, registerValue2);
+    StringParsingTools::tryGetInt(registerHex2, registerValue2);
     std::string registerName2 {s_registerNameMapping[registerValue2]};
 
     line.value = registerName1 + "," + registerName2;
@@ -177,13 +160,9 @@ void setValueRegister(AssemblyLine& line)
 {
     std::string registerHex {line.objectCode.substr(2, 1)};
     int registerValue;
-    tryGetInt(registerHex, registerValue);
+    StringParsingTools::tryGetInt(registerHex, registerValue);
 
     line.value = s_registerNameMapping[registerValue];
-}
-
-void setValueMemory(AssemblyLine& line, size_t base, size_t nextAddress)
-{
 }
 
 // Extracts symbol and literal information from a symbol table file.
@@ -204,11 +183,11 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
         {
             bool failure {false};
 
-            Symbol symbol;
-            tryGetArg(line, 0, &symbol.name);
-            failure |= !tryGetArg(line, 1, &symbol.addressHex);
-            failure |= !tryGetArg(line, 2, &symbol.flags);
-            failure |= !tryGetInt(symbol.addressHex, symbol.addressValue);
+            Symbol symbol {};
+            StringParsingTools::tryGetArg(line, 0, &symbol.name);
+            failure |= !StringParsingTools::tryGetArg(line, 1, &symbol.addressHex);
+            failure |= !StringParsingTools::tryGetArg(line, 2, &symbol.flags);
+            failure |= !StringParsingTools::tryGetInt(symbol.addressHex, symbol.addressValue);
 
             if (failure)
                 break;
@@ -232,13 +211,13 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
         {
             bool failure {false};
 
-            Literal literal;
-            tryGetArg(line, 0, &literal.name);
-            failure |= !tryGetArg(line, 1, &literal.value);
-            failure |= !tryGetArg(line, 2, &literal.lengthHex);
-            failure |= !tryGetArg(line, 3, &literal.addressHex);
-            failure |= !tryGetInt(literal.addressHex, literal.addressValue);
-            failure |= !tryGetInt(literal.lengthHex, literal.lengthValue);
+            Literal literal {};
+            StringParsingTools::tryGetArg(line, 0, &literal.name);
+            failure |= !StringParsingTools::tryGetArg(line, 1, &literal.value);
+            failure |= !StringParsingTools::tryGetArg(line, 2, &literal.lengthHex);
+            failure |= !StringParsingTools::tryGetArg(line, 3, &literal.addressHex);
+            failure |= !StringParsingTools::tryGetInt(literal.addressHex, literal.addressValue);
+            failure |= !StringParsingTools::tryGetInt(literal.lengthHex, literal.lengthValue);
 
             if (failure)
                 break;
@@ -253,42 +232,124 @@ bool parseSymbolTableFile(const std::string& fileName, SymbolTableData& outData)
     return true;
 }
 
+std::unordered_map<u8, InstructionDefinition> instructionTable {
+        {
+                {24, {"ADD", InstructionInfo::Format::ThreeOrFour}},
+                {88, {"ADDF", InstructionInfo::Format::ThreeOrFour}},
+                {144, {"ADDR", InstructionInfo::Format::Two}},
+                {64, {"AND", InstructionInfo::Format::ThreeOrFour}},
+                {180, {"CLEAR", InstructionInfo::Format::Two}},
+                {40, {"COMP", InstructionInfo::Format::ThreeOrFour}},
+                {136, {"COMPF", InstructionInfo::Format::ThreeOrFour}},
+                {160, {"COMPR", InstructionInfo::Format::Two}},
+                {36, {"DIV", InstructionInfo::Format::ThreeOrFour}},
+                {100, {"DIVF", InstructionInfo::Format::ThreeOrFour}},
+                {156, {"DIVR", InstructionInfo::Format::Two}},
+                {196, {"FIX", InstructionInfo::Format::One}},
+                {192, {"FLOAT", InstructionInfo::Format::One}},
+                {244, {"HIO", InstructionInfo::Format::One}},
+                {60, {"J", InstructionInfo::Format::ThreeOrFour}},
+                {48, {"JEQ", InstructionInfo::Format::ThreeOrFour}},
+                {52, {"JGT", InstructionInfo::Format::ThreeOrFour}},
+                {56, {"JLT", InstructionInfo::Format::ThreeOrFour}},
+                {72, {"JSUB", InstructionInfo::Format::ThreeOrFour}},
+                {0, {"LDA", InstructionInfo::Format::ThreeOrFour}},
+                {104, {"LDB", InstructionInfo::Format::ThreeOrFour}},
+                {80, {"LDCH", InstructionInfo::Format::ThreeOrFour}},
+                {112, {"LDF", InstructionInfo::Format::ThreeOrFour}},
+                {8, {"LDL", InstructionInfo::Format::ThreeOrFour}},
+                {108, {"LDS", InstructionInfo::Format::ThreeOrFour}},
+                {116, {"LDT", InstructionInfo::Format::ThreeOrFour}},
+                {4, {"LDX", InstructionInfo::Format::ThreeOrFour}},
+                {208, {"LPS", InstructionInfo::Format::ThreeOrFour}},
+                {32, {"MUL", InstructionInfo::Format::ThreeOrFour}},
+                {96, {"MULF", InstructionInfo::Format::ThreeOrFour}},
+                {152, {"MULR", InstructionInfo::Format::Two}},
+                {200, {"NORM", InstructionInfo::Format::One}},
+                {68, {"OR", InstructionInfo::Format::ThreeOrFour}},
+                {216, {"RD", InstructionInfo::Format::ThreeOrFour}},
+                {172, {"RMO", InstructionInfo::Format::Two}},
+                {76, {"RSUB", InstructionInfo::Format::ThreeOrFour}},
+                {164, {"SHIFTL", InstructionInfo::Format::Two}},
+                {168, {"SHIFTR", InstructionInfo::Format::Two}},
+                {240, {"SIO", InstructionInfo::Format::One}},
+                {236, {"SSK", InstructionInfo::Format::ThreeOrFour}},
+                {12, {"STA", InstructionInfo::Format::ThreeOrFour}},
+                {120, {"STB", InstructionInfo::Format::ThreeOrFour}},
+                {84, {"STCH", InstructionInfo::Format::ThreeOrFour}},
+                {128, {"STF", InstructionInfo::Format::ThreeOrFour}},
+                {212, {"STI", InstructionInfo::Format::ThreeOrFour}},
+                {20, {"STL", InstructionInfo::Format::ThreeOrFour}},
+                {124, {"STS", InstructionInfo::Format::ThreeOrFour}},
+                {232, {"STSW", InstructionInfo::Format::ThreeOrFour}},
+                {132, {"STT", InstructionInfo::Format::ThreeOrFour}},
+                {16, {"STX", InstructionInfo::Format::ThreeOrFour}},
+                {28, {"SUB", InstructionInfo::Format::ThreeOrFour}},
+                {92, {"SUBF", InstructionInfo::Format::ThreeOrFour}},
+                {148, {"SUBR", InstructionInfo::Format::Two}},
+                {176, {"SVC", InstructionInfo::Format::Two}},
+                {224, {"TD", InstructionInfo::Format::ThreeOrFour}},
+                {248, {"TIO", InstructionInfo::Format::One}},
+                {44, {"TIX", InstructionInfo::Format::ThreeOrFour}},
+                {184, {"TIXR", InstructionInfo::Format::Two}},
+                {220, {"WD", InstructionInfo::Format::ThreeOrFour}},
+        }
+};
+
 bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& symbolData, ObjectCodeData& outData)
 {
-    std::unordered_map<u8, InstructionDefinition> instructionTable {};
+//    std::unordered_map<u8, InstructionDefinition> instructionTable {};
 
     // Parse the instructions from a CSV file
     {
-        std::ifstream opCodeTableStream {"opcode_table.csv"};
-
-        if (!opCodeTableStream.is_open())
-        {
-            Logger::log_error("[Disassembler] Failed to open op code table!");
-            return false;
-        }
-
-        std::string line {};
-
-        while (std::getline(opCodeTableStream, line))
-        {
-            InstructionDefinition definition {};
-            tryGetArg(line, 0, &definition.name, ',');
-            std::string format {};
-            tryGetArg(line, 1, &format, ',');
-
-            if (format == "1")
-                definition.format = InstructionInfo::Format::One;
-            else if (format == "2")
-                definition.format = InstructionInfo::Format::Two;
-            else if (format == "3/4")
-                definition.format = InstructionInfo::Format::ThreeOrFour;
-
-            std::string opcodeHex {};
-            tryGetArg(line, 2, &opcodeHex, ',');
-            u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
-            instructionTable.emplace(opcodeValue, definition);
-            Logger::log_info("%s: %i", definition.name.c_str(), opcodeValue);
-        }
+//        std::ifstream opCodeTableStream {"opcode_table.csv"};
+//
+//        if (!opCodeTableStream.is_open())
+//        {
+//            Logger::log_error("[Disassembler] Failed to open op code table!");
+//            return false;
+//        }
+//
+//        std::string line {};
+//        std::ofstream output {"fuck_this_class.hpp"};
+//        output << "std::unordered_map<u8, InstructionDefinition> instructions {" << std::endl;
+//        output << std::setw(4) << "{" << std::endl;
+//
+//        while (std::getline(opCodeTableStream, line))
+//        {
+//            InstructionDefinition definition {};
+//            tryGetArg(line, 0, &definition.name, ',');
+//            std::string format {};
+//            tryGetArg(line, 1, &format, ',');
+//
+//            if (format == "1")
+//                definition.format = InstructionInfo::Format::One;
+//            else if (format == "2")
+//                definition.format = InstructionInfo::Format::Two;
+//            else if (format == "3/4")
+//                definition.format = InstructionInfo::Format::ThreeOrFour;
+//
+//            std::string opcodeHex {};
+//            tryGetArg(line, 2, &opcodeHex, ',');
+//            u8 opcodeValue = std::stoi(opcodeHex, nullptr, 16);
+//            instructionTable.emplace(opcodeValue, definition);
+//            Logger::log_info("%s: %i", definition.name.c_str(), opcodeValue);
+//
+//            switch (definition.format)
+//            {
+//                case InstructionInfo::Format::One:
+//                    output << std::setw(8) << "{" << std::to_string(opcodeValue) << ", {\"" << definition.name <<"\", InstructionInfo::Format::One}}," << std::endl;
+//                    break;
+//                case InstructionInfo::Format::Two:
+//                    output << std::setw(8) << "{" << std::to_string(opcodeValue) << ", {\"" << definition.name <<"\", InstructionInfo::Format::Two}}," << std::endl;
+//                    break;
+//                case InstructionInfo::Format::ThreeOrFour:
+//                    output << std::setw(8) << "{" << std::to_string(opcodeValue) << ", {\"" << definition.name <<"\", InstructionInfo::Format::ThreeOrFour}}," << std::endl;
+//                    break;
+//            }
+//        }
+//        output << std::setw(4) << "}" << std::endl;
+//        output << "};" << std::endl;
     }
 
     auto* lines = new std::vector<AssemblyLine>;
@@ -314,7 +375,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                 headerStartingAddressHex = line.substr(7, 6);
 
                 std::string lengthBytesHex {line.substr(13, 6)};
-                tryGetInt(lengthBytesHex, headerLengthBytes);
+                StringParsingTools::tryGetInt(lengthBytesHex, headerLengthBytes);
 
                 Logger::log_info("parsed header: %s, starts at %s and has %i bytes", headerProgramName.c_str(), headerStartingAddressHex.c_str(), headerLengthBytes);
             }
@@ -324,11 +385,11 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
                 std::string lengthHex {line.substr(7, 2)};
                 int lengthValue;
-                tryGetInt(lengthHex, lengthValue);
+                StringParsingTools::tryGetInt(lengthHex, lengthValue);
 
                 std::string startingAddressHex {line.substr(1, 6)};
                 int startingAddressValue;
-                tryGetInt(startingAddressHex, startingAddressValue);
+                StringParsingTools::tryGetInt(startingAddressHex, startingAddressValue);
 
                 currentAddress = startingAddressValue;
                 Logger::log_info("start: %s (%i), lengthHex: %s (%i)", startingAddressHex.c_str(), startingAddressValue, lengthHex.c_str(), lengthValue);
@@ -356,17 +417,17 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
                     for (int i {0}; i < symbolData.literalCount; ++i)
                     {
-                        Literal cur {symbolData.literals[i]};
+                        Literal cur = symbolData.literals[i];
 
                         if (currentAddress == cur.addressValue)
                         {
                             result.type = AssemblyLine::Type::Literal;
-                            result.addressHex = getHex(currentAddress);
+                            result.addressHex = StringParsingTools::getHex(currentAddress);
                             result.addressValue = currentAddress;
                             result.label = cur.name;
                             result.instruction = "BYTE"; // in reality, we can't assume everything is a byte
                             result.value = cur.value;
-                            result.objectCode = getBetween(cur.value, '\'');
+                            result.objectCode = StringParsingTools::getBetween(cur.value, '\'');
                             index += cur.lengthValue;
                             foundLiteral = true;
                         }
@@ -379,7 +440,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         std::string opCodeHex {line.substr(index, 2)};
                         index += 2;
                         int opCodeAndNI {};
-                        tryGetInt(opCodeHex, opCodeAndNI);
+                        StringParsingTools::tryGetInt(opCodeHex, opCodeAndNI);
                         int opCodeValue = opCodeAndNI & 0b11111100;
 
                         // Make sure our table contains the opcode
@@ -399,14 +460,14 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                         }
                         else if (instructionDefinition.format == InstructionInfo::Format::ThreeOrFour)
                         {
-                            InstructionInfo::FormatThreeOrFourInfo& info {result.instructionInfo.formatThreeOrFourInfo};
+                            InstructionInfo::FormatThreeOrFourInfo& info = result.instructionInfo.formatThreeOrFourInfo;
                             info.n = (opCodeAndNI & 0b00000010) != 0;
                             info.i = (opCodeAndNI & 0b00000001) != 0;
 
                             std::string nixbpeHex {line.substr(index, 1)};
                             index += 1;
                             int nixbpeValue {};
-                            tryGetInt(nixbpeHex, nixbpeValue);
+                            StringParsingTools::tryGetInt(nixbpeHex, nixbpeValue);
 
                             info.x = (nixbpeValue & 0b1000) != 0;
                             info.b = (nixbpeValue & 0b0100) != 0;
@@ -423,12 +484,12 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                                 baseInfo.value = result.value;
                                 baseInfo.objectCode = "";
                                 baseInfo.type = AssemblyLine::Type::Decoration;
-                                tryGetInt(baseInfo.value, currentBase);
+                                StringParsingTools::tryGetInt(baseInfo.value, currentBase);
                             }
                         }
 
                         result.objectCode = line.substr(start, index - start);
-                        result.addressHex = getHex(currentAddress);
+                        result.addressHex = StringParsingTools::getHex(currentAddress);
                     }
 
                     currentAddress += (index - start) / 2;
@@ -443,7 +504,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
 
     // Finish parsing the instructions, and write into the assembly lines
     int startingAddressValue;
-    tryGetInt(headerStartingAddressHex, startingAddressValue);
+    StringParsingTools::tryGetInt(headerStartingAddressHex, startingAddressValue);
 
     AssemblyLine header {};
     header.addressHex = "0000";
@@ -486,7 +547,7 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
             }
             if (line.instructionInfo.format == InstructionInfo::Format::ThreeOrFour)
             {
-                InstructionInfo::FormatThreeOrFourInfo& info {line.instructionInfo.formatThreeOrFourInfo};
+                InstructionInfo::FormatThreeOrFourInfo& info = line.instructionInfo.formatThreeOrFourInfo;
 
                 // Check if base-relative
                 if (info.b)
@@ -494,12 +555,12 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     Logger::log_info("base rel: %s", line.instruction.c_str());
                     std::string displacementHex {line.objectCode.substr(3, 3)};
                     int displacementValue {};
-                    tryGetInt(displacementHex, displacementValue);
+                    StringParsingTools::tryGetInt(displacementHex, displacementValue);
 
                     if (info.x)
                         displacementValue += currentX;
 
-                    line.value = getHex(displacementValue + currentBase);
+                    line.value = StringParsingTools::getHex(displacementValue + currentBase);
                 }
                     // Check if PC-relative
                 else if (info.p)
@@ -507,13 +568,13 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     Logger::log_info("pc rel: %s", line.instruction.c_str());
                     std::string displacementHex {line.objectCode.substr(3, 3)};
                     int displacementValue {};
-                    tryGetInt(displacementHex, displacementValue);
+                    StringParsingTools::tryGetInt(displacementHex, displacementValue);
                     displacementValue = extend(displacementValue, 12);
 
                     if (info.x)
                         displacementValue += currentX;
 
-                    line.value = getHex(displacementValue + nextAddress);
+                    line.value = StringParsingTools::getHex(displacementValue + nextAddress);
                 }
                     // Then we must be direct
                 else
@@ -522,19 +583,19 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
                     int length = info.e ? 5 : 3;
                     std::string addressHex {line.objectCode.substr(3, length)};
                     int addressValue;
-                    tryGetInt(addressHex, addressValue);
+                    StringParsingTools::tryGetInt(addressHex, addressValue);
 
                     if (info.x)
                         addressValue += currentX;
 
-                    line.value = getHex(addressValue);
+                    line.value = StringParsingTools::getHex(addressValue);
                 }
 
                 if (line.instruction == "LDB")
-                    tryGetInt(line.value, currentBase);
+                    StringParsingTools::tryGetInt(line.value, currentBase);
 
                 if (line.instruction == "LDX")
-                    tryGetInt(line.value, currentX);
+                    StringParsingTools::tryGetInt(line.value, currentX);
 
                 if (line.instruction == "ADD")
                     line.instruction = "ADD";
@@ -554,10 +615,10 @@ bool parseObjectCodeFile(const std::string& fileName, const SymbolTableData& sym
         }
 
         else if (line.instruction == "BASE")
-            line.value = getHex(currentBase);
+            line.value = StringParsingTools::getHex(currentBase);
     }
 
-    AssemblyLine footer;
+    AssemblyLine footer {};
     footer.addressHex = "";
     footer.label = "";
     footer.instruction = "END";
@@ -592,9 +653,11 @@ void outputObjectCodeData(const ObjectCodeData& data, const std::string& outputF
 
 int main(int argc, char* argv[])
 {
+    Logger::enabled = false;
+
     if (argc != 3)
     {
-        printf("usage: ./disassem <object code file> <symbol table file>");
+        printf("usage: ./disassem <object code file> <symbol table file>\n");
         return -1;
     }
 
