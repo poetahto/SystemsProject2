@@ -23,6 +23,7 @@ set(SOURCE_NAMES
 		src/object_code_parser.cpp
 		src/instruction_definition_table.hpp
         src/instruction_definition_table.cpp
+		src/symbol_table_parser.cpp
 )
 
 add_executable(disassem ${SOURCE_NAMES})

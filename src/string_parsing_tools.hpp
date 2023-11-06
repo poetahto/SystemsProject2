@@ -1,3 +1,8 @@
+// String parsing tools
+// Date: 6-Nov-23
+// Author: Daniel Walls
+// RedID: 825776127
+
 #ifndef ASSIG2_STRING_PARSING_TOOLS_HPP
 #define ASSIG2_STRING_PARSING_TOOLS_HPP
 

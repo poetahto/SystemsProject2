@@ -1,3 +1,8 @@
+// Lookup table for instruction definitions
+// Date: 6-Nov-23
+// Author: Daniel Walls
+// RedID: 825776127
+
 #ifndef ASSIG2_INSTRUCTION_DEFINITION_TABLE_HPP
 #define ASSIG2_INSTRUCTION_DEFINITION_TABLE_HPP
 
