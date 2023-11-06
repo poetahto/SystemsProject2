@@ -3,5 +3,4 @@ all:
 
 clean:
 	rm disassem
-	rm out.lst
-	
+
